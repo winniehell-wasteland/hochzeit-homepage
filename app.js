@@ -25,7 +25,7 @@ module.exports = (function() {
   ];
 
   ASSET_DIRECTORIES.forEach(function(dir) {
-    app.use('/' + dir, express.static(path.join('data', dir)));
+    app.use('/' + dir, express.static(path.join(__dirname, dir)));
   });
 
   app.get(/^\/(.*)$/, displayPage);
