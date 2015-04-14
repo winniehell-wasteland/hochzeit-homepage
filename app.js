@@ -10,8 +10,12 @@ module.exports = (function() {
 
   var app = express();
 
-  var contentDir = 'data';
-  var viewLoader = new nunjucks.FileSystemLoader(contentDir);
+  var CONTENT_DIR = 'data';
+  var PASSWORD = fs.readFileSync(CONTENT_DIR + '/password.txt', {
+    encoding: 'utf8',
+  });
+
+  var viewLoader = new nunjucks.FileSystemLoader(CONTENT_DIR);
   var viewEnv = new nunjucks.Environment(viewLoader, {autoescape: true});
   viewEnv.express(app);
 
@@ -21,36 +25,36 @@ module.exports = (function() {
     app.use(logger('dev'));
   }
 
-  var ASSET_DIRECTORIES = ['css',
-    'fonts',
-    'js',
-  ];
-
   app.use(bodyParser.urlencoded({
     extended: false,
   }));
   app.use(cookieParser());
 
   app.use(restrictAccess);
-  ASSET_DIRECTORIES.forEach(function(dir) {
-    app.use('/' + dir, express.static(path.join(__dirname, dir)));
-  });
   app.post('/login', checkPassword);
+
+  addAssetHandler(__dirname, ['css',
+    'fonts',
+    'js',
+  ]);
+  addAssetHandler(CONTENT_DIR, ['photos',
+  ]);
+
   app.get(/^\/(.*)$/, displayPage);
   app.use(fallbackHandler);
   app.use(errorHandler);
 
-  function checkPassword(req, res, next) {
-    fs.readFile(contentDir + '/password.txt', {
-        encoding: 'utf8',
-      },
-      function(err, password) {
-        if (err) {
-          next(err);
-          return;
-        }
+  function addAssetHandler(baseDir, subDirs) {
+    subDirs.forEach(function (subDir) {
+      app.use('/' + subDir, express.static(path.join(baseDir, subDir), {
+        index: false,
+        maxAge: '1 days',
+      }));
+    });
+  }
 
-        if (req.body.password !== password) {
+  function checkPassword(req, res, next) {
+        if (req.body.password !== PASSWORD) {
           res.status(404);
           res.render('error.html', {
             message: 'Falsches Passwort! <a href="/login">Nochmal?</a>',
@@ -74,8 +78,8 @@ module.exports = (function() {
           secure: httpsOnly,
           maxAge: oneYearInMilliseconds,
         });
+
         res.redirect('/info');
-      });
   }
 
   function displayPage(req, res, next) {
@@ -88,6 +92,7 @@ module.exports = (function() {
 
     // do not handle requests with file extension
     if (pageName.indexOf('.') > -1) {
+      next();
       return;
     }
 
@@ -97,6 +102,7 @@ module.exports = (function() {
       return;
     }
 
+    res.setHeader('Cache-Control', 'public, max-age=3600');
     res.render(fileName, {
       activePage: pageName.split('/')[0],
       isLoggedIn: isLoggedIn(req),
@@ -118,6 +124,10 @@ module.exports = (function() {
     next(err);
   }
 
+  function isLoggedIn(req) {
+    return (req.cookies.rememberremember === 'the third of July');
+  }
+
   function restrictAccess(req, res, next) {
     var unrestrictedUrls = [
       '/css/bootstrap.min.css',
@@ -131,10 +141,6 @@ module.exports = (function() {
     }
 
     res.redirect('/login');
-  }
-
-  function isLoggedIn(req) {
-    return (req.cookies.rememberremember === 'the third of July');
   }
 
   return app;
