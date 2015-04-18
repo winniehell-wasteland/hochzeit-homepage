@@ -1,5 +1,5 @@
 module.exports = (function() {
-  var express = require('express');
+  var express = require('express-streamline');
 
   var bodyParser = require('body-parser');
   var cookieParser = require('cookie-parser');
@@ -12,6 +12,9 @@ module.exports = (function() {
   var app = express();
 
   var CONTENT_DIR = 'data';
+  var COMMENTS_DIR = CONTENT_DIR + '/' + 'comments';
+  var GUESTS_DIR = CONTENT_DIR + '/' + 'guests';
+
   var MAX_CHILD_COUNT = 4;
   var PASSWORD = fs.readFileSync(CONTENT_DIR + '/password.txt', {
     encoding: 'utf8',
@@ -38,12 +41,13 @@ module.exports = (function() {
   addAssetHandler(__dirname, ['css',
     'fonts',
     'js',
+    'favicon.ico',
   ]);
   addAssetHandler(CONTENT_DIR, ['photos',
   ]);
 
   app.get(/^\/(.*)$/, displayPage);
-  app.post('/guest-list', handleGuestListForm);
+  app.post('/guest-list', handleForm);
   app.use(fallbackHandler);
   app.use(errorHandler);
 
@@ -54,34 +58,6 @@ module.exports = (function() {
         maxAge: '1 days',
       }));
     });
-  }
-
-
-
-  function isValidComment(input) {
-    if (!input.name || !input.comment) {
-      return false;
-    }
-
-    return !(!input.name.trim() || !input.comment.trim());
-  }
-
-  function isValidReply(input) {
-    if (!input.name) {
-      return false;
-    }
-
-    if (!input.answer || !input.isDisplayAllowed) {
-      return false;
-    }
-
-    for (var i = 0; i < MAX_CHILD_COUNT; ++i) {
-      if (!input.childNames[i] != !input.childAges[i]) {
-          return false;
-        }
-    }
-
-    return true;
   }
 
   function checkPassword(req, res, next) {
@@ -113,7 +89,17 @@ module.exports = (function() {
     res.redirect('/info');
   }
 
-  function displayPage(req, res, next) {
+  function compareByDate(a, b) {
+    if (a.date > b.date) {
+      return -1;
+    } else if (a.date < b.date) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+  function displayPage(req, res, _) {
     var pageName = req.params[0].replace(/\/$/, '');
 
     // default to info page
@@ -123,21 +109,26 @@ module.exports = (function() {
 
     // do not handle requests with file extension
     if (pageName.indexOf('.') > -1) {
-      next();
-      return;
+      return true;
     }
 
     var fileName = pageName + '.html';
 
     if (fileName !== path.normalize(fileName)) {
-      return;
+      return false;
     }
 
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.render(fileName, {
+    var data = {
       activePage: pageName.split('/')[0],
       isLoggedIn: isLoggedIn(req),
-    });
+    };
+
+    if (pageName === 'guest-list/display') {
+      data.allComments = loadJSONObjects(COMMENTS_DIR, _);
+      data.allGuests = loadJSONObjects(GUESTS_DIR, _);
+    }
+
+    res.render(fileName, data);
   }
 
   function errorHandler(err, req, res, next) {
@@ -153,18 +144,18 @@ module.exports = (function() {
     next(new Error('Not Found'));
   }
 
-  function handleGuestListForm(req, res, next) {
+  function handleForm(req, res, _) {
     var input = req.body;
 
     var data, dir;
     if ((input.action === 'addComment') && isValidComment(input)) {
-      dir = 'comments';
+      dir = COMMENTS_DIR;
       data = {
         name: input.name,
-        comment: input.comment,
+        text: input.text,
       };
     } else if ((req.body.action === 'addGuests') && isValidReply(input)) {
-      dir = 'guests';
+      dir = GUESTS_DIR;
 
       var children = [];
       for (var i = 0; i < MAX_CHILD_COUNT; ++i) {
@@ -176,35 +167,74 @@ module.exports = (function() {
         }
       }
 
+      console.log(input);
       data = {
+        isDisplayAllowed: (input.isDisplayAllowed === 'true'),
         name: input.name,
         partnerName: input.partnerName,
-        isValidReply: input.isValidReply,
-        answer: input.answer,
+        answer: (input.answer === 'true'),
         children: children,
-        keepmysoul: input.keepmysoul,
+        keepMySoul: (input.keepMySoul === 'true'),
       };
     } else {
       input.isLoggedIn = isLoggedIn(req);
-      //console.log('input: ' + JSON.stringify(input));
       res.render('guest-list.html', input);
     }
 
     if (data) {
       var nowInUTC = moment.utc();
-      var fileName = CONTENT_DIR + '/guest-list/guests/' + nowInUTC.format();
-      fs.writeJson(fileName, data, function(err) {
-        if (err) {
-          next(err);
-        } else {
-          res.redirect('/guest-list/display/');
-        }
-      });
+      var fileName = dir + '/' + nowInUTC.format() + '.json';
+      fs.writeJson(fileName, data, _);
+      res.redirect('/guest-list/display/');
     }
+  }
+
+  function isJSONFile(fileName) {
+    return fileName.search(/\.json$/) > -1;
   }
 
   function isLoggedIn(req) {
     return (req.cookies.rememberremember === 'the third of July');
+  }
+
+  function isValidComment(input) {
+    if (!input.name || !input.text) {
+      return false;
+    }
+
+    return !(!input.name.trim() || !input.text.trim());
+  }
+
+  function isValidReply(input) {
+    if (!input.name) {
+      return false;
+    }
+
+    if (!input.answer || !input.isDisplayAllowed) {
+      return false;
+    }
+
+    for (var i = 0; i < MAX_CHILD_COUNT; ++i) {
+      if (!input.childNames[i] != !input.childAges[i]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  function loadJSONObjects(dir, _) {
+    var files = fs.readdir(dir, _);
+
+    var allObjects = files.filter(isJSONFile).map_(_, function (_, fileName) {
+      var object = fs.readJson(dir + '/' + fileName, _);
+      object.date = moment(fileName.replace('.json', ''));
+      return object;
+    });
+
+    allObjects.sort(compareByDate);
+
+    return allObjects;
   }
 
   function restrictAccess(req, res, next) {
