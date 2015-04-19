@@ -12,6 +12,7 @@ module.exports = (function() {
   var app = express();
 
   var CONTENT_DIR = 'data';
+  var CAKES_DIR = CONTENT_DIR + '/' + 'cakes';
   var COMMENTS_DIR = CONTENT_DIR + '/' + 'comments';
   var GUESTS_DIR = CONTENT_DIR + '/' + 'guests';
 
@@ -47,7 +48,8 @@ module.exports = (function() {
   ]);
 
   app.get(/^\/(.*)$/, displayPage);
-  app.post('/guest-list', handleForm);
+  app.post('/guest-list/', handleForm);
+  app.post('/info/cake', handleForm);
   app.use(fallbackHandler);
   app.use(errorHandler);
 
@@ -126,6 +128,8 @@ module.exports = (function() {
     if (pageName === 'guest-list/display') {
       data.allComments = loadJSONObjects(COMMENTS_DIR, _);
       data.allGuests = loadJSONObjects(GUESTS_DIR, _);
+    } else if (pageName === 'info/cake') {
+      data.allCakes = loadJSONObjects(CAKES_DIR, _);
     }
 
     res.render(fileName, data);
@@ -147,45 +151,82 @@ module.exports = (function() {
   function handleForm(req, res, _) {
     var input = req.body;
 
-    var data, dir;
-    if ((input.action === 'addComment') && isValidComment(input)) {
-      dir = COMMENTS_DIR;
-      data = {
-        name: input.name,
-        text: input.text,
-      };
-    } else if ((req.body.action === 'addGuests') && isValidReply(input)) {
-      dir = GUESTS_DIR;
+    var data, dir, pageName, redirection;
 
-      var children = [];
-      for (var i = 0; i < MAX_CHILD_COUNT; ++i) {
-        if (input.childNames[i]) {
-          children.push({
-            name: input.childNames[i],
-            age: input.childAges[i],
-          });
-        }
+    switch (input.action) {
+      case 'addCake':
+      {
+        pageName = 'info/cake';
+        redirection = '/' + pageName;
+        dir = CAKES_DIR;
+        break;
       }
+      case 'addComment':
+      {
+        pageName = 'guest-list';
+        redirection = '/' + pageName + '/display';
+        dir = COMMENTS_DIR;
+        break;
+      }
+      case 'addGuests':
+      {
+        pageName = 'guest-list';
+        redirection = '/' + pageName + '/display';
+        dir = GUESTS_DIR;
+        break;
+      }
+    }
 
-      console.log(input);
-      data = {
-        isDisplayAllowed: (input.isDisplayAllowed === 'true'),
-        name: input.name,
-        partnerName: input.partnerName,
-        answer: (input.answer === 'true'),
-        children: children,
-        keepMySoul: (input.keepMySoul === 'true'),
-      };
-    } else {
-      input.isLoggedIn = isLoggedIn(req);
-      res.render('guest-list.html', input);
+    switch (input.action) {
+      case 'addCake':
+      case 'addComment':
+      {
+        if (isValidComment(input)) {
+          data = {
+            guestName: input.guestName,
+            text: input.text,
+          };
+        }
+
+        break;
+      }
+      case 'addGuests':
+      {
+        if (isValidReply(input)) {
+          var children = [];
+          for (var i = 0; i < MAX_CHILD_COUNT; ++i) {
+            if (input.childNames[i]) {
+              children.push({
+                name: input.childNames[i],
+                age: input.childAges[i],
+              });
+            }
+          }
+
+          data = {
+            isDisplayAllowed: (input.isDisplayAllowed === 'true'),
+            name: input.name,
+            partnerName: input.partnerName,
+            answer: (input.answer === 'true'),
+            children: children,
+            keepMySoul: (input.keepMySoul === 'true'),
+          };
+        }
+
+        break;
+      }
     }
 
     if (data) {
       var nowInUTC = moment.utc();
       var fileName = dir + '/' + nowInUTC.format() + '.json';
       fs.writeJson(fileName, data, _);
-      res.redirect('/guest-list/display/');
+      res.redirect(redirection);
+    } else {
+      data = input;
+      data.activePage = pageName.split('/')[0];
+      data.isLoggedIn = isLoggedIn(req);
+      res.render(CONTENT_DIR + '/' + pageName + '.html', data);
     }
   }
 
@@ -198,11 +239,11 @@ module.exports = (function() {
   }
 
   function isValidComment(input) {
-    if (!input.name || !input.text) {
+    if (!input.guestName || !input.text) {
       return false;
     }
 
-    return !(!input.name.trim() || !input.text.trim());
+    return !(!input.guestName.trim() || !input.text.trim());
   }
 
   function isValidReply(input) {
@@ -226,7 +267,7 @@ module.exports = (function() {
   function loadJSONObjects(dir, _) {
     var files = fs.readdir(dir, _);
 
-    var allObjects = files.filter(isJSONFile).map_(_, function (_, fileName) {
+    var allObjects = files.filter(isJSONFile).map_(_, function(_, fileName) {
       var object = fs.readJson(dir + '/' + fileName, _);
       object.date = moment(fileName.replace('.json', ''));
       return object;
