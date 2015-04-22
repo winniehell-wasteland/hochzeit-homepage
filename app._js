@@ -62,13 +62,13 @@ module.exports = (function() {
     });
   }
 
-  function checkPassword(req, res, next) {
+  function checkPassword(req, res, _) {
     if (req.body.password !== PASSWORD) {
       res.status(404);
       res.render('error.html', {
         message: 'Falsches Passwort! <a href="/login">Nochmal?</a>',
       });
-      return;
+      return false;
     }
 
     var domain;
@@ -135,7 +135,7 @@ module.exports = (function() {
     res.render(fileName, data);
   }
 
-  function errorHandler(err, req, res, next) {
+  function errorHandler(err, req, res, _) {
     console.error(err.stack);
 
     res.status(404);
@@ -144,8 +144,8 @@ module.exports = (function() {
     });
   }
 
-  function fallbackHandler(req, res, next) {
-    next(new Error('Not Found'));
+  function fallbackHandler(req, res, _) {
+    throw new Error('Not Found');
   }
 
   function handleForm(req, res, _) {
@@ -278,7 +278,7 @@ module.exports = (function() {
     return allObjects;
   }
 
-  function restrictAccess(req, res, next) {
+  function restrictAccess(req, res, _) {
     var unrestrictedUrls = [
       '/css/bootstrap.min.css',
       '/login',
@@ -286,8 +286,7 @@ module.exports = (function() {
 
     var isUnrestricted = unrestrictedUrls.indexOf(req.url) > -1;
     if (isUnrestricted || isLoggedIn(req)) {
-      next();
-      return;
+      return true;
     }
 
     res.redirect('/login');
