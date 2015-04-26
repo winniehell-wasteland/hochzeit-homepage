@@ -128,6 +128,12 @@ module.exports = (function() {
     if (pageName === 'guest-list/display') {
       data.allComments = loadJSONObjects(COMMENTS_DIR, _);
       data.allGuests = loadJSONObjects(GUESTS_DIR, _);
+
+      if (app.get('env') !== 'production') {
+        data.allGuests.forEach(function(guest) {
+          guest.isDisplayAllowed = true;
+        });
+      }
     } else if (pageName === 'info/cake') {
       data.allCakes = loadJSONObjects(CAKES_DIR, _);
     }
